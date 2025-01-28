@@ -136,7 +136,7 @@ def OnDateSelect(event):
 ### GUI erstellen ###
 userInterface = tk.Tk()
 userInterface.title("Automatisierte Planausgabe")
-userInterface.geometry("800x600")
+userInterface.geometry("350x600")
 
 def UserName (projectLocation):
 	return re.compile (r'.*://(.*):.*@.*').match (projectLocation).group (1)
