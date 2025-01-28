@@ -1,9 +1,10 @@
-import os, re, tkinter as tk
-from JSON_Commands import *
-from archicad import ACConnection as ACC
+import os
+import re
+import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkcalendar import Calendar
 from datetime import datetime
+from JSON_Commands import *
 
 ### Projektinformationen und ArchiCAD-Verbindung ###
 def ProjectInformation():
@@ -11,7 +12,6 @@ def ProjectInformation():
     ExitIfResponseNotAsExpected(response, ["projectLocation", "projectPath", "isTeamwork"])
     return response
 
-projectLocation = ArchicadLocation()
 projectInfo = ProjectInformation()
 
 ### Variablen vorbereiten ###
@@ -23,24 +23,33 @@ selected_time = None
 
 ### Publish-Funktion ###
 def Publish():
+    AcConnection = ConnectArchicad()
+    if not AcConnection:
+        messagebox.showerror("Fehler", "Keine Verbindung zu Archicad!")
+        return
+
     progressLabel.config(text="Publishing...")
+    try:
+        if projectInfo['isTeamwork']:
+            response = ExecuteJSONCommands('TeamworkReceive')
+            ExitIfError(response)
 
-    if projectInfo['isTeamwork']:
-        response = ExecuteJSONCommands('TeamworkReceive')
-        ExitIfError(response)
+        for publisherSetListIndex in publisherSetList.curselection():
+            publisherSetName = publisherSetNames[publisherSetListIndex]
+            parameters = {
+                'publisherSetName': publisherSetName,
+                'outputPath': os.path.join(
+                    outputPathEntry.get(),
+                    publisherSetName
+                ),
+            }
+            response = ExecuteJSONCommands('Publish', parameters)
+            ExitIfError(response)
 
-    for publisherSetListIndex in publisherSetList.curselection():
-        publisherSetName = publisherSetNames[publisherSetListIndex]
-        parameters = {'publisherSetName': publisherSetName}
-        if outputPathEntry.get():
-            parameters['outputPath'] = os.path.join(
-                outputPathEntry.get(),
-                publisherSetName,
-                f'{publishSubfolderPrefix}{datetime.now().strftime(publishSubfolderDatePostfixFormat)}'
-            )
-
-        response = ExecuteJSONCommands('Publish', parameters)
-        ExitIfError(response)
+        progressLabel.config(text="Publishing abgeschlossen.")
+    except Exception as e:
+        progressLabel.config(text="Publishing Fehler!")
+        print(f"Fehler: {e}")
 
 ### Planung der Veröffentlichung ###
 def SchedulePublish():
@@ -61,8 +70,19 @@ def SchedulePublish():
         return
 
     time_delta = (target_datetime - now).total_seconds()
+
+    # Planung des Publizierens
     progressLabel.config(text=f"Geplant für: {selected_date} um {selected_time}")
-    userInterface.after(int(time_delta * 1000), Publish)
+    print(f"Publishing geplant in {time_delta} Sekunden.")
+    userInterface.after(int(time_delta * 1000), lambda: ExecutePublishing())
+
+def ExecutePublishing():
+    try:
+        progressLabel.config(text="Publishing läuft...")
+        Publish()
+    except Exception as e:
+        progressLabel.config(text="Publishing Fehler!")
+        print(f"Fehler beim Publishing: {e}")
 
 ### GUI-Initialisierung ###
 def ShowPublisherSetList():
@@ -76,25 +96,6 @@ def ShowPublisherSetList():
         publisherSetList.select_set(0)
         publisherSetList.event_generate("<<ListboxSelect>>")
 
-def UserName (projectLocation):
-	return re.compile (r'.*://(.*):.*@.*').match (projectLocation).group (1)
-
-def ConfGui():
-    ShowPublisherSetList()
-    ReplaceEntryValue(projectEntry, projectInfo['projectPath'])
-    if projectInfo['isTeamwork']:
-        ReplaceEntryValue(projectEntry, f'{projectEntry.get()} (Teamwork project)')
-        ReplaceEntryValue(teamworkUsernameEntry, UserName(projectInfo['projectLocation']))
-    projectEntry['state'] = tk.DISABLED
-    outputPathEntry['state'] = tk.DISABLED
-    teamworkUsernameEntry['state'] = tk.DISABLED
-
-### GUI erstellen ###
-userInterface = tk.Tk()
-userInterface.title("Automatisierte Planausgabe")
-userInterface.geometry("800x600")
-
-### Funktionen für GUI ###
 def ReplaceEntryValue(entry, text):
     entry.delete(0, tk.END)
     entry.insert(0, text)
@@ -132,12 +133,31 @@ def OnDateSelect(event):
     selected_date = calendar.get_date()
     OpenTimePopup()
 
+### GUI erstellen ###
+userInterface = tk.Tk()
+userInterface.title("Automatisierte Planausgabe")
+userInterface.geometry("800x600")
+
+def UserName (projectLocation):
+	return re.compile (r'.*://(.*):.*@.*').match (projectLocation).group (1)
+
+### Funktionen für GUI ###
+def ConfGui():
+    ShowPublisherSetList()
+    ReplaceEntryValue(projectEntry, projectInfo['projectPath'])
+    if projectInfo['isTeamwork']:
+        ReplaceEntryValue(projectEntry, f"{projectEntry.get()} (Teamwork project)")
+        ReplaceEntryValue(taskworkUsernameEntry, UserName(projectInfo['projectLocation']))
+    projectEntry['state'] = tk.DISABLED
+    outputPathEntry['state'] = tk.DISABLED
+    taskworkUsernameEntry['state'] = tk.DISABLED
+
 ### UI-Elemente definieren ###
 projectLabel = tk.Label(userInterface, text="Projekt")
 projectEntry = tk.Entry(userInterface)
 
-teamworkUsernameLabel = tk.Label(userInterface, text="Benutzername")
-teamworkUsernameEntry = tk.Entry(userInterface)
+taskworkUsernameLabel = tk.Label(userInterface, text="Benutzername")
+taskworkUsernameEntry = tk.Entry(userInterface)
 
 publisherSetLabel = tk.Label(userInterface, text="Publisher-Sets")
 publisherSetList = tk.Listbox(userInterface, selectmode=tk.MULTIPLE)
@@ -158,8 +178,8 @@ exitButton = tk.Button(userInterface, text="Abbrechen", command=userInterface.de
 projectLabel.grid(row=0, column=0, padx=10, pady=5, sticky=tk.W)
 projectEntry.grid(row=0, column=1, columnspan=2, padx=10, pady=5, sticky=tk.EW)
 
-teamworkUsernameLabel.grid(row=1, column=0, padx=10, pady=5, sticky=tk.W)
-teamworkUsernameEntry.grid(row=1, column=1, columnspan=2, padx=10, pady=5, sticky=tk.EW)
+taskworkUsernameLabel.grid(row=1, column=0, padx=10, pady=5, sticky=tk.W)
+taskworkUsernameEntry.grid(row=1, column=1, columnspan=2, padx=10, pady=5, sticky=tk.EW)
 
 publisherSetLabel.grid(row=2, column=0, padx=10, pady=5, sticky=tk.W)
 publisherSetList.grid(row=3, column=0, columnspan=3, padx=10, pady=5, sticky=tk.NSEW)
